@@ -1,0 +1,65 @@
+# 依赖
+node_modules
+npm-debug.log
+yarn-error.log
+# package-lock.json 需要保留，npm ci 需要它
+
+# 构建产物（会在 Dockerfile 中重新构建）
+dist
+build
+
+# 开发文件
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 测试
+coverage
+.nyc_output
+tests
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 日志
+logs
+*.log
+
+# 数据库文件（会在容器中重新创建，或通过 volume 挂载）
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# 文档
+README.md
+*.md
+STATUS.md
+TEST_RESULTS.md
+
+# Python 虚拟环境
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# 其他
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# Docker 相关
+docker-compose.yml
+Dockerfile
+.dockerignore
