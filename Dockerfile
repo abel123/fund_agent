@@ -46,4 +46,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # 初始化数据库并启动服务器
-CMD ["sh", "-c", "npm run init-db && tsx src/server/index.ts"]
+CMD ["sh", "-c", "tsx src/server/index.ts"]
