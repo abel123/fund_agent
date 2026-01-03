@@ -1,7 +1,6 @@
 import db from '../db/database.js';
 import { holdingService } from './holdingService.js';
 import type { Holding } from '../../shared/types.js';
-import { format, startOfWeek, startOfMonth, isAfter, parseISO } from 'date-fns';
 
 export class ProfitService {
   // 计算持仓的浮动盈亏
@@ -41,8 +40,8 @@ export class ProfitService {
     }>;
   } {
     const holdings = holdingService.getHoldings(userId);
-    let totalCost = 0;
-    let totalValue = 0;
+    let totalYesterdayValue = 0;
+    let totalCurrentValue = 0;
     const holdingProfits: Array<{
       holdingId: string;
       fundName: string;
@@ -51,16 +50,20 @@ export class ProfitService {
     }> = [];
 
     holdings.forEach(holding => {
-      const price = holdingService.getLatestPrice(holding.fundId);
-      if (!price) return;
+      // 获取最新价格和昨天的价格
+      const priceHistory = holdingService.getPriceHistory(holding.fundId, 2);
+      if (priceHistory.length < 2) return;
 
-      const costValue = holding.shares * holding.costPrice;
-      const currentValue = holding.shares * price.nav;
-      const profit = currentValue - costValue;
-      const profitPercent = (profit / costValue) * 100;
+      const currentPrice = priceHistory[0];
+      const yesterdayPrice = priceHistory[1];
 
-      totalCost += costValue;
-      totalValue += currentValue;
+      const currentValue = holding.shares * currentPrice.nav;
+      const yesterdayValue = holding.shares * yesterdayPrice.nav;
+      const profit = currentValue - yesterdayValue;
+      const profitPercent = yesterdayValue > 0 ? (profit / yesterdayValue) * 100 : 0;
+
+      totalYesterdayValue += yesterdayValue;
+      totalCurrentValue += currentValue;
 
       holdingProfits.push({
         holdingId: holding.id,
@@ -70,8 +73,8 @@ export class ProfitService {
       });
     });
 
-    const totalProfit = totalValue - totalCost;
-    const totalProfitPercent = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+    const totalProfit = totalCurrentValue - totalYesterdayValue;
+    const totalProfitPercent = totalYesterdayValue > 0 ? (totalProfit / totalYesterdayValue) * 100 : 0;
 
     return {
       totalProfit,
@@ -85,31 +88,28 @@ export class ProfitService {
     totalProfit: number;
     totalProfitPercent: number;
   } {
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
     const holdings = holdingService.getHoldings(userId);
-
-    let totalCost = 0;
-    let totalValue = 0;
+    let totalWeekStartValue = 0;
+    let totalCurrentValue = 0;
 
     holdings.forEach(holding => {
-      // 获取本周开始时的价格
+      // 获取价格历史
       const priceHistory = holdingService.getPriceHistory(holding.fundId, 7);
-      const weekStartPrice = priceHistory.find(p => 
-        isAfter(parseISO(p.date), weekStart) || p.date === format(weekStart, 'yyyy-MM-dd')
-      );
+      if (priceHistory.length === 0) return;
 
-      const currentPrice = holdingService.getLatestPrice(holding.fundId);
-      if (!currentPrice || !weekStartPrice) return;
+      const currentPrice = priceHistory[0];
+      // 使用历史数据中的最早价格作为本周开始价格（简化计算，避免日期匹配问题）
+      const weekStartPrice = priceHistory[priceHistory.length - 1];
 
       const currentValue = holding.shares * currentPrice.nav;
-      const costValue = holding.shares * holding.costPrice;
+      const weekStartValue = holding.shares * weekStartPrice.nav;
 
-      totalCost += costValue;
-      totalValue += currentValue;
+      totalWeekStartValue += weekStartValue;
+      totalCurrentValue += currentValue;
     });
 
-    const totalProfit = totalValue - totalCost;
-    const totalProfitPercent = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+    const totalProfit = totalCurrentValue - totalWeekStartValue;
+    const totalProfitPercent = totalWeekStartValue > 0 ? (totalProfit / totalWeekStartValue) * 100 : 0;
 
     return { totalProfit, totalProfitPercent };
   }
@@ -119,30 +119,28 @@ export class ProfitService {
     totalProfit: number;
     totalProfitPercent: number;
   } {
-    const monthStart = startOfMonth(new Date());
     const holdings = holdingService.getHoldings(userId);
-
-    let totalCost = 0;
-    let totalValue = 0;
+    let totalMonthStartValue = 0;
+    let totalCurrentValue = 0;
 
     holdings.forEach(holding => {
+      // 获取价格历史
       const priceHistory = holdingService.getPriceHistory(holding.fundId, 31);
-      const monthStartPrice = priceHistory.find(p => 
-        isAfter(parseISO(p.date), monthStart) || p.date === format(monthStart, 'yyyy-MM-dd')
-      );
+      if (priceHistory.length === 0) return;
 
-      const currentPrice = holdingService.getLatestPrice(holding.fundId);
-      if (!currentPrice || !monthStartPrice) return;
+      const currentPrice = priceHistory[0];
+      // 使用历史数据中的最早价格作为本月开始价格（简化计算，避免日期匹配问题）
+      const monthStartPrice = priceHistory[priceHistory.length - 1];
 
       const currentValue = holding.shares * currentPrice.nav;
-      const costValue = holding.shares * holding.costPrice;
+      const monthStartValue = holding.shares * monthStartPrice.nav;
 
-      totalCost += costValue;
-      totalValue += currentValue;
+      totalMonthStartValue += monthStartValue;
+      totalCurrentValue += currentValue;
     });
 
-    const totalProfit = totalValue - totalCost;
-    const totalProfitPercent = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+    const totalProfit = totalCurrentValue - totalMonthStartValue;
+    const totalProfitPercent = totalMonthStartValue > 0 ? (totalProfit / totalMonthStartValue) * 100 : 0;
 
     return { totalProfit, totalProfitPercent };
   }
@@ -157,41 +155,37 @@ export class ProfitService {
     const holding = holdingService.findHoldingByFundName(userId, fundName);
     if (!holding) return null;
 
-    const currentPrice = holdingService.getLatestPrice(holding.fundId);
-    if (!currentPrice) return null;
+    // 获取价格历史
+    const days = period === 'day' ? 2 : period === 'week' ? 7 : 31;
+    const priceHistory = holdingService.getPriceHistory(holding.fundId, days);
+    if (priceHistory.length < 2) return null;
 
+    const currentPrice = priceHistory[0];
+    let comparePrice;
     let profit = 0;
     let profitPercent = 0;
 
     if (period === 'day') {
-      const costValue = holding.shares * holding.costPrice;
+      // 当日收益：使用昨天的价格
+      comparePrice = priceHistory[1];
       const currentValue = holding.shares * currentPrice.nav;
-      profit = currentValue - costValue;
-      profitPercent = (profit / costValue) * 100;
+      const compareValue = holding.shares * comparePrice.nav;
+      profit = currentValue - compareValue;
+      profitPercent = compareValue > 0 ? (profit / compareValue) * 100 : 0;
     } else if (period === 'week') {
-      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-      const priceHistory = holdingService.getPriceHistory(holding.fundId, 7);
-      const weekStartPrice = priceHistory.find(p => 
-        isAfter(parseISO(p.date), weekStart) || p.date === format(weekStart, 'yyyy-MM-dd')
-      );
-      if (weekStartPrice) {
-        const weekStartValue = holding.shares * weekStartPrice.nav;
-        const currentValue = holding.shares * currentPrice.nav;
-        profit = currentValue - weekStartValue;
-        profitPercent = weekStartValue > 0 ? (profit / weekStartValue) * 100 : 0;
-      }
+      // 本周收益：使用本周第一天的价格（即历史数据中的最早价格）
+      comparePrice = priceHistory[priceHistory.length - 1];
+      const currentValue = holding.shares * currentPrice.nav;
+      const compareValue = holding.shares * comparePrice.nav;
+      profit = currentValue - compareValue;
+      profitPercent = compareValue > 0 ? (profit / compareValue) * 100 : 0;
     } else if (period === 'month') {
-      const monthStart = startOfMonth(new Date());
-      const priceHistory = holdingService.getPriceHistory(holding.fundId, 31);
-      const monthStartPrice = priceHistory.find(p => 
-        isAfter(parseISO(p.date), monthStart) || p.date === format(monthStart, 'yyyy-MM-dd')
-      );
-      if (monthStartPrice) {
-        const monthStartValue = holding.shares * monthStartPrice.nav;
-        const currentValue = holding.shares * currentPrice.nav;
-        profit = currentValue - monthStartValue;
-        profitPercent = monthStartValue > 0 ? (profit / monthStartValue) * 100 : 0;
-      }
+      // 本月收益：使用本月第一天的价格（即历史数据中的最早价格）
+      comparePrice = priceHistory[priceHistory.length - 1];
+      const currentValue = holding.shares * currentPrice.nav;
+      const compareValue = holding.shares * comparePrice.nav;
+      profit = currentValue - compareValue;
+      profitPercent = compareValue > 0 ? (profit / compareValue) * 100 : 0;
     }
 
     return {
